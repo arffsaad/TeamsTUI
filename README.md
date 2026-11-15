@@ -105,3 +105,15 @@ cargo test      # unit tests + an end-to-end run against the demo backend
 `src/backend/` holds the `Backend` trait with two implementations: `graph.rs`
 (Microsoft Graph) and `demo.rs` (in-memory sample data). `src/app.rs` is the
 state machine, `src/ui/` the ratatui rendering.
+
+## Releasing
+
+Bump `version` in `Cargo.toml`, commit, then push a matching tag:
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+The Release workflow builds Linux (x86_64, arm64), macOS (Intel, Apple
+silicon) and Windows binaries and publishes them with checksums as a GitHub
+release.
