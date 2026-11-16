@@ -130,6 +130,11 @@ pub fn parse_message(v: &Value) -> Message {
             attachments.push(Attachment { name: if text.is_empty() { "Card".into() } else { format!("Card: {text}") }, url: String::new() });
         }
     }
+    if !system {
+        for (src, gif) in html::images(v["body"]["content"].as_str().unwrap_or("")) {
+            attachments.push(Attachment { name: if gif { "GIF".into() } else { "Image".into() }, url: src });
+        }
+    }
     let mut replies: Vec<Message> = v["replies"].as_array().into_iter().flatten().map(parse_message).collect();
     replies.sort_by_key(|m| m.created);
     Message {
@@ -572,6 +577,17 @@ impl Backend for Graph {
 
     async fn download(&self, item: &DriveItem, dest: PathBuf) -> Result<()> {
         let resp = self.raw(Method::GET, &format!("/me/drive/items/{}/content", item.id), None, &[]).await?;
+        let bytes = resp.bytes().await?;
+        tokio::task::spawn_blocking(move || std::fs::write(dest, bytes)).await??;
+        Ok(())
+    }
+
+    async fn fetch(&self, url: &str, dest: PathBuf) -> Result<()> {
+        let resp = if url.starts_with("https://graph.microsoft.com") {
+            self.raw(Method::GET, url, None, &[]).await?
+        } else {
+            self.http.get(url).timeout(Duration::from_secs(60)).send().await.map_err(|e| anyhow!("network error: {e}"))?.error_for_status()?
+        };
         let bytes = resp.bytes().await?;
         tokio::task::spawn_blocking(move || std::fs::write(dest, bytes)).await??;
         Ok(())

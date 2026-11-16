@@ -154,10 +154,15 @@ pub fn to_text(html: &str) -> String {
                     }
                 }
             }
-            "img" => match attr(tag, "alt") {
-                Some(alt) if tag.contains("Emoji") && !alt.is_empty() => out.push_str(&alt),
-                _ => out.push_str("[image]"),
-            },
+            "img" => {
+                let alt = attr(tag, "alt").unwrap_or_default();
+                if tag.contains("Emoji") && !alt.is_empty() {
+                    out.push_str(&alt);
+                } else {
+                    let gif = tag.to_ascii_lowercase().contains("gif") || tag.contains("giphy") || alt.to_ascii_lowercase().contains("gif");
+                    out.push_str(if gif { "[GIF]" } else { "[image]" });
+                }
+            }
             "emoji" if !closing => out.push_str(&attr(tag, "alt").unwrap_or_default()),
             "at" if !closing => out.push('@'),
             _ => {}
@@ -179,6 +184,26 @@ pub fn to_text(html: &str) -> String {
         res.push('\n');
     }
     res.trim().to_string()
+}
+
+/// Sources of content (non-emoji) images in a message body, each with a GIF flag.
+pub fn images(html: &str) -> Vec<(String, bool)> {
+    let mut out = vec![];
+    let mut rest = html;
+    while let Some(i) = rest.find('<') {
+        rest = &rest[i + 1..];
+        let Some(j) = rest.find('>') else { break };
+        let tag = &rest[..j];
+        rest = &rest[j + 1..];
+        let lower = tag.to_ascii_lowercase();
+        if lower.starts_with("img") && !lower.contains("emoji") {
+            if let Some(src) = attr(tag, "src").filter(|s| s.starts_with("http")) {
+                let gif = src.to_ascii_lowercase().contains("gif") || lower.contains("giphy") || attr(tag, "alt").unwrap_or_default().to_ascii_lowercase().contains("gif");
+                out.push((src, gif));
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -210,6 +235,14 @@ mod tests {
     fn escape_roundtrip() {
         let s = "a < b && \"c\"\nnext";
         assert_eq!(to_text(&escape(s)), s);
+    }
+
+    #[test]
+    fn extracts_content_images() {
+        let html = "<div>see <img src=\"https://x/a.png\" alt=\"pic\"> and <img itemtype=\"Emoji\" src=\"https://e/s.png\" alt=\"\u{1f642}\"> <img src=\"https://media.giphy.com/x.gif\" alt=\"gif\"></div>";
+        assert_eq!(images(html), vec![("https://x/a.png".to_string(), false), ("https://media.giphy.com/x.gif".to_string(), true)]);
+        assert_eq!(to_text("<img src=\"https://media.giphy.com/x.gif\" alt=\"gif\">"), "[GIF]");
+        assert_eq!(to_text("<img src=\"https://x/y.png\" alt=\"image\">"), "[image]");
     }
 
     #[test]

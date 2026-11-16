@@ -31,7 +31,8 @@ fn content(m: &Message, maxw: usize) -> Vec<(String, Style)> {
         }
     }
     for a in &m.attachments {
-        rows.push((format!("📎 {}", trunc(&a.name, maxw.saturating_sub(3))), accent().add_modifier(Modifier::UNDERLINED)));
+        let icon = if a.is_image() { if a.is_gif() { "🎞" } else { "🖼" } } else { "📎" };
+        rows.push((format!("{icon} {}", trunc(&a.name, maxw.saturating_sub(3))), accent().add_modifier(Modifier::UNDERLINED)));
     }
     rows
 }

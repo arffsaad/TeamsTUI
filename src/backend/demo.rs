@@ -116,6 +116,10 @@ impl Demo {
         m2[3].reactions.push(Reaction { emoji: "❤️".into(), user_id: "u2".into() });
         m2[3].reactions.push(Reaction { emoji: "👍".into(), user_id: "u3".into() });
         m2[3].reactions.push(Reaction { emoji: "👍".into(), user_id: "u4".into() });
+        m2[4].attachments.push(Attachment { name: "Image".into(), url: "https://contoso.example/images/demo-env.png".into() });
+        let mut gif = msg(&mut seq, &lynne, 10, "This calls for a celebration 🎉");
+        gif.attachments.push(Attachment { name: "GIF".into(), url: "https://contoso.example/images/celebrate.gif".into() });
+        m2.push(gif);
         add_chat("c2", ChatKind::Group, Some("Launch crew 🚀"), &[&adele, &diego, &lynne], m2, true);
 
         let m3 = vec![
@@ -495,6 +499,19 @@ impl Backend for Demo {
 
     async fn download(&self, item: &DriveItem, dest: PathBuf) -> Result<()> {
         std::fs::write(dest, format!("Demo content of {}\n", item.name))?;
+        Ok(())
+    }
+
+    async fn fetch(&self, _url: &str, dest: PathBuf) -> Result<()> {
+        // A 1x1 transparent PNG, so the demo "open image" path writes a real file.
+        const PNG: [u8; 67] = [
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+            0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+            0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+            0x42, 0x60, 0x82,
+        ];
+        std::fs::write(dest, PNG)?;
         Ok(())
     }
 }

@@ -37,7 +37,7 @@ refreshed automatically. `teamstui --logout` forgets it.
 
 | Area | What works |
 | --- | --- |
-| **Chat** | 1:1, group and meeting chats; unread markers; live updates; send, quote-reply, edit, delete; reactions; @mentions with Tab completion; attachments and links open in the browser; per-conversation drafts; load older history; new 1:1 and group chats |
+| **Chat** | 1:1, group and meeting chats; unread markers; live updates; send, quote-reply, edit, delete; reactions; @mentions with Tab completion; images and GIFs open in your viewer/browser (`o`); attachments and links open in the browser; per-conversation drafts; load older history; new 1:1 and group chats |
 | **Teams** | Teams and channels tree; posts with threaded replies; new posts, thread replies, reactions, edit, delete |
 | **Activity** | Feed of new messages and @mentions; Enter jumps to the conversation |
 | **Calendar** | Week grid with overlapping events, all-day row and now-line; meeting details; accept / tentative / decline; schedule a Teams meeting; join opens the meeting link |

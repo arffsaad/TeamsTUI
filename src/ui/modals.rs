@@ -38,7 +38,7 @@ const HELP: [(&str, &str); 24] = [
     ("Enter  or  y", "Reply (quote in chats, thread reply in channels)"),
     ("e", "Edit your message"),
     ("d", "Delete your message"),
-    ("o", "Open the message's link or attachment"),
+    ("o", "Open the message's link, image or attachment"),
     ("c", "Call the people in this chat (opens Teams)"),
     ("PgUp / PgDn", "Scroll the conversation"),
     ("← →  /  t", "Calendar: previous / next week, today"),

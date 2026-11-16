@@ -128,6 +128,20 @@ pub struct Attachment {
     pub url: String,
 }
 
+impl Attachment {
+    /// True when the attachment points at an image or GIF we can display.
+    pub fn is_image(&self) -> bool {
+        let u = self.url.split(['?', '#']).next().unwrap_or(&self.url).to_ascii_lowercase();
+        [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"].iter().any(|e| u.ends_with(e))
+            || self.url.contains("hostedContents")
+            || self.url.contains("giphy")
+    }
+
+    pub fn is_gif(&self) -> bool {
+        self.url.to_ascii_lowercase().contains(".gif") || self.url.contains("giphy") || self.name.eq_ignore_ascii_case("gif")
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Message {
     pub id: String,

@@ -35,4 +35,6 @@ pub trait Backend: Send + Sync {
     async fn search_messages(&self, q: &str) -> Result<Vec<SearchHit>>;
     async fn files(&self, folder: Option<String>) -> Result<Vec<DriveItem>>;
     async fn download(&self, item: &DriveItem, dest: PathBuf) -> Result<()>;
+    /// Fetch an arbitrary URL (authenticated for Graph hosts) to a local file.
+    async fn fetch(&self, url: &str, dest: PathBuf) -> Result<()>;
 }

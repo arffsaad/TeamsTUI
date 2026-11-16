@@ -256,6 +256,7 @@ pub struct App {
     pub reply: Option<ReplyCtx>,
     drafts: HashMap<ConvRef, String>,
     pending_seq: u64,
+    img_seq: u64,
 
     pub activity: Vec<ActivityItem>,
     mentions: Vec<ActivityItem>,
@@ -326,6 +327,7 @@ impl App {
             reply: None,
             drafts: HashMap::new(),
             pending_seq: 0,
+            img_seq: 0,
             activity: vec![],
             mentions: vec![],
             act_sel: 0,
@@ -1037,11 +1039,38 @@ impl App {
 
     fn open_selected_link(&mut self) {
         let Some((m, _)) = self.selected() else { return };
-        let url = m.attachments.iter().map(|a| a.url.clone()).find(|u| !u.is_empty()).or_else(|| first_url(&m.body));
-        match url {
-            Some(u) => self.open_url(&u),
-            None => self.toast("No link or attachment in this message"),
+        if let Some(a) = m.attachments.iter().find(|a| !a.url.is_empty()) {
+            if a.is_image() && a.url.contains("graph.microsoft.com") && !self.demo {
+                // Teams-hosted images need the auth token, so fetch them and open locally.
+                return self.fetch_and_open_image(a.url.clone(), a.is_gif());
+            }
+            let url = a.url.clone();
+            return self.open_url(&url);
         }
+        match first_url(&m.body) {
+            Some(u) => self.open_url(&u),
+            None => self.toast("No link, image or attachment in this message"),
+        }
+    }
+
+    /// Download a Graph-hosted image to a temp file and open it in the OS viewer.
+    fn fetch_and_open_image(&mut self, url: String, gif: bool) {
+        self.img_seq += 1;
+        let mut dest = std::env::temp_dir();
+        dest.push(format!("teamstui-image-{}.{}", self.img_seq, if gif { "gif" } else { "png" }));
+        self.toast("Opening image\u{2026}");
+        let backend = self.backend.clone();
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let ev = match backend.fetch(&url, dest.clone()).await {
+                Ok(()) => match open::that_detached(&dest) {
+                    Ok(()) => Ev::Done { toast: Some("Opened image in your viewer".into()), refresh: None, calendar: false },
+                    Err(_) => Ev::Error(format!("Image saved to {} but no viewer could open it", dest.display())),
+                },
+                Err(e) => Ev::Error(format!("Couldn't load the image: {e}")),
+            };
+            let _ = tx.send(ev);
+        });
     }
 
     // ---- events ----------------------------------------------------------
