@@ -116,9 +116,9 @@ impl Demo {
         m2[3].reactions.push(Reaction { emoji: "❤️".into(), user_id: "u2".into() });
         m2[3].reactions.push(Reaction { emoji: "👍".into(), user_id: "u3".into() });
         m2[3].reactions.push(Reaction { emoji: "👍".into(), user_id: "u4".into() });
-        m2[4].attachments.push(Attachment { name: "Image".into(), url: "https://contoso.example/images/demo-env.png".into() });
-        let mut gif = msg(&mut seq, &lynne, 10, "This calls for a celebration 🎉");
-        gif.attachments.push(Attachment { name: "GIF".into(), url: "https://contoso.example/images/celebrate.gif".into() });
+        m2[4].attachments.push(Attachment { name: "sunset.jpg".into(), url: "https://contoso.example/images/sunset.jpg".into() });
+        let mut gif = msg(&mut seq, &lynne, 10, "Golden hour from the balcony 🌅 (press v to view)");
+        gif.attachments.push(Attachment { name: "twilight.png".into(), url: "https://contoso.example/images/twilight.png".into() });
         m2.push(gif);
         add_chat("c2", ChatKind::Group, Some("Launch crew 🚀"), &[&adele, &diego, &lynne], m2, true);
 
@@ -503,24 +503,134 @@ impl Backend for Demo {
     }
 
     async fn fetch_bytes(&self, url: &str) -> Result<Vec<u8>> {
-        // Generate a colourful placeholder so the in-terminal viewer shows something in --demo.
-        use image::{Rgb, RgbImage};
-        let gif = url.contains("gif");
-        let (w, h) = (480u32, 270u32);
-        let mut img = RgbImage::new(w, h);
-        for (x, y, p) in img.enumerate_pixels_mut() {
-            let (fx, fy) = (x as f32 / w as f32, y as f32 / h as f32);
-            *p = if gif {
-                let (cx, cy) = (fx - 0.5, fy - 0.5);
-                let d = (cx * cx + cy * cy).sqrt();
-                let v = ((d * 16.0).sin() * 0.5 + 0.5) * 255.0;
-                Rgb([v as u8, (255.0 - v) as u8, (fx * 255.0) as u8])
-            } else {
-                Rgb([(fx * 120.0 + 30.0) as u8, (fy * 110.0 + 40.0) as u8, (150.0 + (1.0 - fx) * 80.0) as u8])
-            };
+        // Let a curious user point the demo at a real photo of their own.
+        if let Some(path) = std::env::var_os("TEAMSTUI_DEMO_IMAGE") {
+            return Ok(std::fs::read(path)?);
         }
+        // Otherwise render a photo-like scene so the inline viewer has something worth seeing.
+        let img = scene(!url.contains("twilight") && !url.contains("gif"));
         let mut buf = std::io::Cursor::new(Vec::new());
         img.write_to(&mut buf, image::ImageFormat::Png).map_err(|e| anyhow!("{e}"))?;
         Ok(buf.into_inner())
+    }
+}
+
+fn clamp8(v: f32) -> u8 {
+    v.clamp(0.0, 255.0) as u8
+}
+
+fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
+
+fn mix(a: (f32, f32, f32), b: (f32, f32, f32), t: f32) -> (f32, f32, f32) {
+    (lerp(a.0, b.0, t), lerp(a.1, b.1, t), lerp(a.2, b.2, t))
+}
+
+fn hash(x: u32, y: u32) -> f32 {
+    let mut v = x.wrapping_mul(374_761_393).wrapping_add(y.wrapping_mul(668_265_263));
+    v = (v ^ (v >> 13)).wrapping_mul(1_274_126_177);
+    ((v ^ (v >> 16)) & 0xffff) as f32 / 65535.0
+}
+
+/// A procedurally generated sunset over the sea — all smooth gradients, a glowing
+/// sun, layered mountains and a shimmering reflection, to show off inline images.
+/// `warm` is the golden-hour palette; otherwise a cooler twilight (used for the GIF).
+fn scene(warm: bool) -> image::RgbImage {
+    use image::{Rgb, RgbImage};
+    let (w, h) = (1280u32, 720u32);
+    let (wf, hf) = (w as f32, h as f32);
+    let hy = 0.64 * hf; // horizon
+    let sx = 0.54 * wf;
+    let sy = 0.84 * hy; // sun sits just above the horizon
+    let sunr = 0.085 * hf;
+
+    let (sky_top, sky_mid, sky_hor, sun_col) = if warm {
+        ((28.0, 32.0, 78.0), (196.0, 92.0, 70.0), (255.0, 188.0, 96.0), (255.0, 243.0, 205.0))
+    } else {
+        ((16.0, 20.0, 54.0), (70.0, 60.0, 120.0), (210.0, 140.0, 150.0), (235.0, 220.0, 255.0))
+    };
+    let sea_near = if warm { (205.0, 120.0, 78.0) } else { (120.0, 90.0, 140.0) };
+    let sea_far = if warm { (16.0, 26.0, 62.0) } else { (10.0, 14.0, 44.0) };
+
+    let mut img = RgbImage::new(w, h);
+    for (x, y, p) in img.enumerate_pixels_mut() {
+        let (xf, yf) = (x as f32, y as f32);
+        let (mut r, mut g, mut b);
+        if yf < hy {
+            let t = (yf / hy).clamp(0.0, 1.0);
+            let c = if t < 0.6 { mix(sky_top, sky_mid, t / 0.6) } else { mix(sky_mid, sky_hor, (t - 0.6) / 0.4) };
+            (r, g, b) = c;
+            // faint stars high in the sky
+            if t < 0.32 && hash(x, y) > 0.9975 {
+                let s = 210.0 + 45.0 * hash(x + 9, y + 4);
+                r = r.max(s);
+                g = g.max(s);
+                b = b.max(s);
+            }
+            // sun disc + soft glow
+            let d = ((xf - sx).powi(2) + (yf - sy).powi(2)).sqrt();
+            if d < sunr {
+                (r, g, b) = sun_col;
+            } else {
+                let glow = (-(d - sunr) / (1.05 * sunr)).exp();
+                r = (r + glow * 215.0).min(255.0);
+                g = (g + glow * 165.0).min(255.0);
+                b = (b + glow * (if warm { 90.0 } else { 150.0 })).min(255.0);
+            }
+            // two mountain ridges fading into haze near the horizon
+            let ridge_far = hy - 0.165 * hf - 0.05 * hf * (xf * 0.0105).sin() - 0.022 * hf * (xf * 0.031 + 1.3).sin();
+            let ridge_near = hy - 0.075 * hf - 0.04 * hf * (xf * 0.008 + 2.1).sin() - 0.018 * hf * (xf * 0.025).sin();
+            if yf > ridge_near {
+                (r, g, b) = (38.0, 30.0, 58.0);
+            } else if yf > ridge_far {
+                let haze = 0.55;
+                (r, g, b) = mix((r, g, b), (74.0, 58.0, 100.0), haze);
+            }
+        } else {
+            let t = ((yf - hy) / (hf - hy)).clamp(0.0, 1.0);
+            (r, g, b) = mix(sea_near, sea_far, t.powf(0.8));
+            // gentle horizontal wave banding
+            let band = ((yf * 0.22).sin() * 0.5 + 0.5) * 9.0;
+            r += band;
+            g += band * 0.6;
+            // the sun's reflection: a widening, flickering column of light
+            let dx = (xf - sx).abs();
+            let width = sunr * (0.55 + 2.4 * t);
+            if dx < width {
+                let flick = 0.45 + 0.55 * ((yf * 0.7).sin() * hash(x, (y / 3) * 3));
+                let m = (1.0 - dx / width) * flick;
+                r = (r + m * 180.0).min(255.0);
+                g = (g + m * 135.0).min(255.0);
+                b = (b + m * (if warm { 70.0 } else { 120.0 })).min(255.0);
+            }
+        }
+        *p = Rgb([clamp8(r), clamp8(g), clamp8(b)]);
+    }
+    img
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn dump_scenes() {
+        for (warm, name) in [(true, "sunset"), (false, "twilight")] {
+            let img = scene(warm);
+            let mut buf = std::io::Cursor::new(Vec::new());
+            img.write_to(&mut buf, image::ImageFormat::Png).unwrap();
+            std::fs::write(format!("/tmp/claude-0/-home-user-TeamsTUI/c17f41bd-c061-5cf2-9c2b-c8be21dc23f4/scratchpad/demo_{name}.png"), buf.into_inner()).unwrap();
+        }
+    }
+
+    #[test]
+    fn scene_is_a_rich_image() {
+        let img = scene(true);
+        assert_eq!(img.dimensions(), (1280, 720));
+        let colors: HashSet<(u8, u8, u8)> = img.pixels().map(|p| (p[0], p[1], p[2])).collect();
+        // A real gradient scene has thousands of distinct colors, not a flat fill.
+        assert!(colors.len() > 3000, "scene looks flat: only {} colors", colors.len());
     }
 }
