@@ -502,16 +502,25 @@ impl Backend for Demo {
         Ok(())
     }
 
-    async fn fetch(&self, _url: &str, dest: PathBuf) -> Result<()> {
-        // A 1x1 transparent PNG, so the demo "open image" path writes a real file.
-        const PNG: [u8; 67] = [
-            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
-            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
-            0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
-            0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
-            0x42, 0x60, 0x82,
-        ];
-        std::fs::write(dest, PNG)?;
-        Ok(())
+    async fn fetch_bytes(&self, url: &str) -> Result<Vec<u8>> {
+        // Generate a colourful placeholder so the in-terminal viewer shows something in --demo.
+        use image::{Rgb, RgbImage};
+        let gif = url.contains("gif");
+        let (w, h) = (480u32, 270u32);
+        let mut img = RgbImage::new(w, h);
+        for (x, y, p) in img.enumerate_pixels_mut() {
+            let (fx, fy) = (x as f32 / w as f32, y as f32 / h as f32);
+            *p = if gif {
+                let (cx, cy) = (fx - 0.5, fy - 0.5);
+                let d = (cx * cx + cy * cy).sqrt();
+                let v = ((d * 16.0).sin() * 0.5 + 0.5) * 255.0;
+                Rgb([v as u8, (255.0 - v) as u8, (fx * 255.0) as u8])
+            } else {
+                Rgb([(fx * 120.0 + 30.0) as u8, (fy * 110.0 + 40.0) as u8, (150.0 + (1.0 - fx) * 80.0) as u8])
+            };
+        }
+        let mut buf = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut buf, image::ImageFormat::Png).map_err(|e| anyhow!("{e}"))?;
+        Ok(buf.into_inner())
     }
 }

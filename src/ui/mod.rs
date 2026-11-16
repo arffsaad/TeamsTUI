@@ -9,6 +9,7 @@ use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 mod conv;
+mod imgview;
 mod modals;
 mod panes;
 
@@ -534,7 +535,7 @@ fn draw_status(f: &mut Frame, area: Rect, app: &mut App) {
     fill(f, area, TITLE);
     let hint = match (app.view, app.focus) {
         (View::Chat | View::Teams, Focus::Compose) if app.conv().is_some() => "Enter send · Alt+Enter new line · @name+Tab mention · ↑ messages · Tab switch pane · F1 help",
-        (View::Chat | View::Teams, Focus::Messages) => "↑↓ select · r react · Enter reply · e edit · d delete · o open link/image · Esc back · F1 help",
+        (View::Chat | View::Teams, Focus::Messages) => "↑↓ select · r react · Enter reply · e edit · d delete · v view image · o open link · Esc back · F1 help",
         (View::Calendar, _) => "↑↓ event · Enter details · ←→ week · t today · n new meeting · J join · Alt+1-6 apps · F1 help",
         (View::Files, _) => "↑↓ select · Enter open · Backspace up · d download · Alt+1-6 apps · F1 help",
         (View::Calls, _) => "↑↓ select · Enter/c call · v video call · m message · Alt+1-6 apps · F1 help",

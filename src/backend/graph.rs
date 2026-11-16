@@ -582,15 +582,13 @@ impl Backend for Graph {
         Ok(())
     }
 
-    async fn fetch(&self, url: &str, dest: PathBuf) -> Result<()> {
+    async fn fetch_bytes(&self, url: &str) -> Result<Vec<u8>> {
         let resp = if url.starts_with("https://graph.microsoft.com") {
             self.raw(Method::GET, url, None, &[]).await?
         } else {
             self.http.get(url).timeout(Duration::from_secs(60)).send().await.map_err(|e| anyhow!("network error: {e}"))?.error_for_status()?
         };
-        let bytes = resp.bytes().await?;
-        tokio::task::spawn_blocking(move || std::fs::write(dest, bytes)).await??;
-        Ok(())
+        Ok(resp.bytes().await?.to_vec())
     }
 }
 

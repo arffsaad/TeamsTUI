@@ -26,6 +26,7 @@ pub enum Ev {
     SearchHits(String, Vec<User>, Vec<SearchHit>),
     ChatCreated(Chat),
     Files(Vec<DriveItem>),
+    ImageLoaded { url: String, img: Result<image::DynamicImage, String> },
     Done { toast: Option<String>, refresh: Option<ConvRef>, calendar: bool },
     Error(String),
 }
@@ -217,6 +218,7 @@ pub enum Modal {
     ConfirmDelete,
     Event(usize),
     NewMeeting { fields: Vec<Input>, focus: usize },
+    Image { title: String, url: String, gif: bool, img: Option<image::DynamicImage>, error: Option<String> },
 }
 
 pub struct App {
@@ -1073,6 +1075,37 @@ impl App {
         });
     }
 
+    /// Open the in-terminal image viewer for the selected message's image.
+    fn view_image(&mut self) {
+        let Some((m, _)) = self.selected() else { return };
+        let Some(a) = m.attachments.iter().find(|a| a.is_image()) else {
+            return self.toast("No image in this message");
+        };
+        let (url, gif, title) = (a.url.clone(), a.is_gif(), a.name.clone());
+        self.modal = Modal::Image { title, url: url.clone(), gif, img: None, error: None };
+        let backend = self.backend.clone();
+        let tx = self.tx.clone();
+        let key = url.clone();
+        tokio::spawn(async move {
+            let img = match backend.fetch_bytes(&key).await {
+                Ok(bytes) => tokio::task::spawn_blocking(move || image::load_from_memory(&bytes).map_err(|e| e.to_string()))
+                    .await
+                    .map_err(|e| e.to_string())
+                    .and_then(|r| r),
+                Err(e) => Err(e.to_string()),
+            };
+            let _ = tx.send(Ev::ImageLoaded { url, img });
+        });
+    }
+
+    fn open_image_external(&mut self, url: String, gif: bool) {
+        if url.contains("graph.microsoft.com") && !self.demo {
+            self.fetch_and_open_image(url, gif);
+        } else {
+            self.open_url(&url);
+        }
+    }
+
     // ---- events ----------------------------------------------------------
 
     pub fn on_event(&mut self, ev: Ev) {
@@ -1180,6 +1213,16 @@ impl App {
                 self.files = f;
                 self.files_loaded = true;
                 self.file_sel = self.file_sel.min(self.files.len().saturating_sub(1));
+            }
+            Ev::ImageLoaded { url, img } => {
+                if let Modal::Image { url: u, img: slot, error, .. } = &mut self.modal {
+                    if *u == url {
+                        match img {
+                            Ok(i) => *slot = Some(i),
+                            Err(e) => *error = Some(e),
+                        }
+                    }
+                }
             }
             Ev::Done { toast, refresh, calendar } => {
                 if let Some(t) = toast {
@@ -1619,6 +1662,7 @@ impl App {
             KeyCode::Char('d') | KeyCode::Delete => self.ask_delete(),
             KeyCode::Enter | KeyCode::Char('y') => self.start_reply(),
             KeyCode::Char('o') => self.open_selected_link(),
+            KeyCode::Char('v') => self.view_image(),
             KeyCode::Char('c') => self.start_call(false),
             KeyCode::Char('?') => self.modal = Modal::Help,
             KeyCode::Char('/') => self.open_search(),
@@ -1863,6 +1907,13 @@ impl App {
                     KeyCode::Char('d') => rsvp(self, Rsvp::Decline, "Declined"),
                     KeyCode::Enter | KeyCode::Char('q') => self.modal = Modal::None,
                     _ => {}
+                }
+            }
+            Modal::Image { url, gif, .. } => {
+                if let KeyCode::Char('o') = k.code {
+                    let (u, g) = (url.clone(), *gif);
+                    self.modal = Modal::None;
+                    self.open_image_external(u, g);
                 }
             }
             Modal::NewMeeting { fields, focus } => match k.code {

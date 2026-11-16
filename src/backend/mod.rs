@@ -35,6 +35,12 @@ pub trait Backend: Send + Sync {
     async fn search_messages(&self, q: &str) -> Result<Vec<SearchHit>>;
     async fn files(&self, folder: Option<String>) -> Result<Vec<DriveItem>>;
     async fn download(&self, item: &DriveItem, dest: PathBuf) -> Result<()>;
-    /// Fetch an arbitrary URL (authenticated for Graph hosts) to a local file.
-    async fn fetch(&self, url: &str, dest: PathBuf) -> Result<()>;
+    /// Fetch an arbitrary URL (authenticated for Graph hosts) into memory.
+    async fn fetch_bytes(&self, url: &str) -> Result<Vec<u8>>;
+    /// Fetch a URL to a local file (used by the external "open" path).
+    async fn fetch(&self, url: &str, dest: PathBuf) -> Result<()> {
+        let bytes = self.fetch_bytes(url).await?;
+        tokio::task::spawn_blocking(move || std::fs::write(dest, bytes)).await??;
+        Ok(())
+    }
 }

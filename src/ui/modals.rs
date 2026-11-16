@@ -22,7 +22,7 @@ fn item_row(f: &mut Frame, r: Rect, selected: bool, line: Line) {
     put(f, r, r.x + 1, r.y, line);
 }
 
-const HELP: [(&str, &str); 24] = [
+const HELP: [(&str, &str); 25] = [
     ("Alt+1 … Alt+6", "Activity, Chat, Teams, Calendar, Calls, OneDrive"),
     ("Ctrl+E  or  /", "Search people, chats, channels and messages"),
     ("Ctrl+N  or  n", "New chat (new meeting in Calendar)"),
@@ -38,6 +38,7 @@ const HELP: [(&str, &str); 24] = [
     ("Enter  or  y", "Reply (quote in chats, thread reply in channels)"),
     ("e", "Edit your message"),
     ("d", "Delete your message"),
+    ("v", "View an image or GIF inside the terminal"),
     ("o", "Open the message's link, image or attachment"),
     ("c", "Call the people in this chat (opens Teams)"),
     ("PgUp / PgDn", "Scroll the conversation"),
@@ -216,6 +217,31 @@ pub fn draw(f: &mut Frame, area: Rect, app: &mut App) {
                 hits.push((Rect::new(fr.x, y, fr.width, 2), Hit::ModalItem(i)));
             }
             put(f, inner, inner.x, inner.bottom().saturating_sub(1), Line::styled("Tab next field · Enter schedule a Teams meeting · Esc cancel", faint()));
+        }
+        Modal::Image { title, url, gif, img, error } => {
+            let r = centered(area, area.width.saturating_sub(2), area.height.saturating_sub(1));
+            let kind = if *gif { "GIF" } else { "Image" };
+            let label = if title.is_empty() || title.eq_ignore_ascii_case(kind) { kind.to_string() } else { format!("{kind} · {title}") };
+            let inner = frame(f, r, &label, &mut hits);
+            let body = Rect::new(inner.x, inner.y, inner.width, inner.height.saturating_sub(1));
+            if let Some(e) = error {
+                let msg = format!("Couldn't load this image: {e}");
+                f.render_widget(Paragraph::new(msg).style(Style::new().fg(RED)).wrap(Wrap { trim: true }), body);
+            } else if let Some(i) = img {
+                let lines = imgview::render(i, body, PANEL);
+                let top = body.y + body.height.saturating_sub(lines.len() as u16) / 2;
+                for (k, line) in lines.into_iter().enumerate() {
+                    put(f, body, body.x, top + k as u16, line);
+                }
+            } else {
+                put(f, body, body.x, body.y + body.height / 2, Line::styled(format!("  {} Loading image\u{2026}", spinner(app)), dim()).centered());
+            }
+            let hint = if url.contains("graph.microsoft.com") || url.starts_with("http") {
+                " o open original externally · Esc close "
+            } else {
+                " Esc close "
+            };
+            put(f, inner, inner.x, inner.bottom().saturating_sub(1), Line::styled(hint, faint()));
         }
     }
     if let Some(c) = cursor {

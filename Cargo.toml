@@ -1,6 +1,6 @@
 [package]
 name = "teamstui"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "A terminal client for Microsoft Teams"
 license = "MIT"
@@ -20,6 +20,7 @@ dirs = "5"
 open = "5"
 unicode-width = "0.2"
 base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 
 [profile.release]
 lto = "thin"
