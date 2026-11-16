@@ -1,6 +1,6 @@
 [package]
 name = "teamstui"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "A terminal client for Microsoft Teams"
 license = "MIT"
