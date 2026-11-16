@@ -616,16 +616,6 @@ mod tests {
     use std::collections::HashSet;
 
     #[test]
-    fn dump_scenes() {
-        for (warm, name) in [(true, "sunset"), (false, "twilight")] {
-            let img = scene(warm);
-            let mut buf = std::io::Cursor::new(Vec::new());
-            img.write_to(&mut buf, image::ImageFormat::Png).unwrap();
-            std::fs::write(format!("/tmp/claude-0/-home-user-TeamsTUI/c17f41bd-c061-5cf2-9c2b-c8be21dc23f4/scratchpad/demo_{name}.png"), buf.into_inner()).unwrap();
-        }
-    }
-
-    #[test]
     fn scene_is_a_rich_image() {
         let img = scene(true);
         assert_eq!(img.dimensions(), (1280, 720));
