@@ -56,6 +56,7 @@ pub fn draw(f: &mut Frame, area: Rect, app: &mut App) {
     }
     let mut hits = vec![(area, Hit::Backdrop)];
     let mut cursor = None;
+    let mut graphics_req: Option<(u64, Rect, std::sync::Arc<Vec<u8>>)> = None;
     match &app.modal {
         Modal::None => {}
         Modal::Help => {
@@ -218,7 +219,7 @@ pub fn draw(f: &mut Frame, area: Rect, app: &mut App) {
             }
             put(f, inner, inner.x, inner.bottom().saturating_sub(1), Line::styled("Tab next field · Enter schedule a Teams meeting · Esc cancel", faint()));
         }
-        Modal::Image { title, url, gif, img, error } => {
+        Modal::Image { title, url, gif, img, error, gen, png } => {
             let r = centered(area, area.width.saturating_sub(2), area.height.saturating_sub(1));
             let kind = if *gif { "GIF" } else { "Image" };
             let label = if title.is_empty() || title.eq_ignore_ascii_case(kind) { kind.to_string() } else { format!("{kind} · {title}") };
@@ -227,6 +228,10 @@ pub fn draw(f: &mut Frame, area: Rect, app: &mut App) {
             if let Some(e) = error {
                 let msg = format!("Couldn't load this image: {e}");
                 f.render_widget(Paragraph::new(msg).style(Style::new().fg(RED)).wrap(Wrap { trim: true }), body);
+            } else if let (true, Some(p)) = (app.graphics.kitty, png.as_ref()) {
+                // Reserve the area with blank cells; the Kitty image is emitted after the draw.
+                f.render_widget(ratatui::widgets::Clear, body);
+                graphics_req = Some((*gen, body, p.clone()));
             } else if let Some(i) = img {
                 let lines = imgview::render(i, body, PANEL);
                 let top = body.y + body.height.saturating_sub(lines.len() as u16) / 2;
@@ -246,6 +251,9 @@ pub fn draw(f: &mut Frame, area: Rect, app: &mut App) {
     }
     if let Some(c) = cursor {
         f.set_cursor_position(c);
+    }
+    if let Some((g, r, p)) = graphics_req {
+        app.graphics.request(g, r, p);
     }
     app.hits.extend(hits);
 }

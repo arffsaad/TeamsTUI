@@ -31,6 +31,8 @@ OPTIONS:
                          [env: TEAMSTUI_TENANT]
     --scopes <SCOPES>    Space-separated Graph scopes to request
                          [env: TEAMSTUI_SCOPES]
+    --image-protocol <P> Inline image rendering: auto, kitty, or halfblocks
+                         [env: TEAMSTUI_IMAGE_PROTOCOL]
     --logout             Forget the saved sign-in and exit
     -h, --help           Show this help
     -V, --version        Show the version
@@ -41,6 +43,7 @@ struct Opts {
     client_id: String,
     tenant: String,
     scopes: String,
+    image_protocol: String,
 }
 
 fn parse_args() -> Result<Option<Opts>> {
@@ -50,6 +53,7 @@ fn parse_args() -> Result<Option<Opts>> {
         client_id: env("TEAMSTUI_CLIENT_ID", auth::DEFAULT_CLIENT_ID),
         tenant: env("TEAMSTUI_TENANT", auth::DEFAULT_TENANT),
         scopes: env("TEAMSTUI_SCOPES", auth::DEFAULT_SCOPES),
+        image_protocol: env("TEAMSTUI_IMAGE_PROTOCOL", "auto"),
     };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -59,6 +63,7 @@ fn parse_args() -> Result<Option<Opts>> {
             "--client-id" => o.client_id = value("--client-id")?,
             "--tenant" => o.tenant = value("--tenant")?,
             "--scopes" => o.scopes = value("--scopes")?,
+            "--image-protocol" => o.image_protocol = value("--image-protocol")?,
             "--logout" => {
                 auth::logout()?;
                 println!("Signed out. Saved sign-in removed from {}", auth::cache_path().display());
@@ -75,10 +80,33 @@ fn parse_args() -> Result<Option<Opts>> {
             other => anyhow::bail!("unknown option '{other}' (try --help)"),
         }
     }
+    o.image_protocol = o.image_protocol.to_ascii_lowercase();
     if !o.scopes.split_whitespace().any(|s| s == "offline_access") {
         o.scopes = format!("offline_access {}", o.scopes);
     }
     Ok(Some(o))
+}
+
+/// Decide whether to use the Kitty graphics protocol for crisp inline images.
+fn use_kitty(pref: &str) -> bool {
+    match pref {
+        "kitty" => return true,
+        "halfblocks" | "half-blocks" | "none" | "off" => return false,
+        _ => {}
+    }
+    // tmux/screen don't pass graphics through reliably — fall back to half-blocks.
+    if std::env::var_os("TMUX").is_some() || std::env::var("TERM").map(|t| t.starts_with("screen")).unwrap_or(false) {
+        return false;
+    }
+    let term = std::env::var("TERM").unwrap_or_default();
+    let prog = std::env::var("TERM_PROGRAM").unwrap_or_default();
+    std::env::var_os("KITTY_WINDOW_ID").is_some()
+        || std::env::var_os("GHOSTTY_RESOURCES_DIR").is_some()
+        || std::env::var_os("KONSOLE_VERSION").is_some()
+        || term.contains("kitty")
+        || term.contains("ghostty")
+        || prog.eq_ignore_ascii_case("ghostty")
+        || prog == "WezTerm"
 }
 
 type Term = Terminal<CrosstermBackend<std::io::Stdout>>;
@@ -168,10 +196,12 @@ async fn run(term: &mut Term, opts: Opts) -> Result<Option<String>> {
         Arc::new(Graph::new(auth))
     };
 
-    let mut app = App::new(backend, tx, opts.demo);
+    let mut app = App::new(backend, tx, opts.demo, use_kitty(&opts.image_protocol));
     app.start();
+    let mut out = stdout();
     loop {
         term.draw(|f| ui::draw(f, &mut app))?;
+        let _ = app.graphics.flush(&mut out);
         let Some(ev) = rx.recv().await else { break };
         app.on_event(ev);
         // Coalesce bursts (pastes, fast typing, several responses) into one redraw.
@@ -182,6 +212,7 @@ async fn run(term: &mut Term, opts: Opts) -> Result<Option<String>> {
             break;
         }
     }
+    app.graphics.teardown(&mut out);
     Ok(app.exit_msg)
 }
 

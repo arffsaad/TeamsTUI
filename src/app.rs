@@ -2,11 +2,13 @@
 use crate::backend::{auth, auth::DeviceCode, Backend};
 use crate::input::Input;
 use crate::model::*;
+use crate::ui::imgview;
 use chrono::{DateTime, Datelike, Duration as CDuration, Local, NaiveDate, NaiveTime, Timelike, Utc};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Position, Rect};
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
+use std::io::Write;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::UnboundedSender;
@@ -218,7 +220,67 @@ pub enum Modal {
     ConfirmDelete,
     Event(usize),
     NewMeeting { fields: Vec<Input>, focus: usize },
-    Image { title: String, url: String, gif: bool, img: Option<image::DynamicImage>, error: Option<String> },
+    Image { title: String, url: String, gif: bool, img: Option<image::DynamicImage>, error: Option<String>, gen: u64, png: Option<Arc<Vec<u8>>> },
+}
+
+/// Out-of-band terminal graphics (Kitty protocol) for crisp inline images.
+/// ratatui only writes changed cells, so an image placed once persists until the
+/// reserved area's cells change; we transmit only when the image or its rect moves.
+pub struct Graphics {
+    pub kitty: bool,
+    id: u32,
+    last: Option<(u64, Rect)>,
+    want: Option<(u64, Rect, Arc<Vec<u8>>)>,
+    dirty: bool,
+}
+
+impl Graphics {
+    fn new(kitty: bool) -> Self {
+        Self { kitty, id: 1337, last: None, want: None, dirty: false }
+    }
+
+    pub fn begin(&mut self) {
+        self.want = None;
+    }
+
+    pub fn request(&mut self, gen: u64, rect: Rect, png: Arc<Vec<u8>>) {
+        self.want = Some((gen, rect, png));
+    }
+
+    pub fn invalidate(&mut self) {
+        self.dirty = true;
+    }
+
+    /// Emit transmit/place or delete sequences for what changed since the last frame.
+    pub fn flush(&mut self, out: &mut impl Write) -> std::io::Result<()> {
+        if !self.kitty {
+            return Ok(());
+        }
+        let key = self.want.as_ref().map(|(g, r, _)| (*g, *r));
+        if !self.dirty && key == self.last {
+            return Ok(());
+        }
+        self.dirty = false;
+        if self.last.is_some() {
+            out.write_all(&imgview::kitty_delete(self.id))?;
+        }
+        if let Some((g, r, png)) = &self.want {
+            if r.width > 0 && r.height > 0 && !png.is_empty() {
+                out.write_all(&imgview::kitty_place(self.id, r.width, r.height, r.x, r.y, png))?;
+            }
+            self.last = Some((*g, *r));
+        } else {
+            self.last = None;
+        }
+        out.flush()
+    }
+
+    pub fn teardown(&mut self, out: &mut impl Write) {
+        if self.kitty && self.last.take().is_some() {
+            let _ = out.write_all(b"\x1b_Ga=d,d=A\x1b\\");
+            let _ = out.flush();
+        }
+    }
 }
 
 pub struct App {
@@ -259,6 +321,8 @@ pub struct App {
     drafts: HashMap<ConvRef, String>,
     pending_seq: u64,
     img_seq: u64,
+    img_gen: u64,
+    pub graphics: Graphics,
 
     pub activity: Vec<ActivityItem>,
     mentions: Vec<ActivityItem>,
@@ -295,7 +359,7 @@ pub fn first_url(text: &str) -> Option<String> {
 }
 
 impl App {
-    pub fn new(backend: Arc<dyn Backend>, tx: UnboundedSender<Ev>, demo: bool) -> Self {
+    pub fn new(backend: Arc<dyn Backend>, tx: UnboundedSender<Ev>, demo: bool, kitty: bool) -> Self {
         let now = Instant::now();
         Self {
             backend,
@@ -330,6 +394,8 @@ impl App {
             drafts: HashMap::new(),
             pending_seq: 0,
             img_seq: 0,
+            img_gen: 0,
+            graphics: Graphics::new(kitty),
             activity: vec![],
             mentions: vec![],
             act_sel: 0,
@@ -1082,7 +1148,7 @@ impl App {
             return self.toast("No image in this message");
         };
         let (url, gif, title) = (a.url.clone(), a.is_gif(), a.name.clone());
-        self.modal = Modal::Image { title, url: url.clone(), gif, img: None, error: None };
+        self.modal = Modal::Image { title, url: url.clone(), gif, img: None, error: None, gen: 0, png: None };
         let backend = self.backend.clone();
         let tx = self.tx.clone();
         let key = url.clone();
@@ -1113,6 +1179,7 @@ impl App {
             Ev::Input(Event::Key(k)) => self.on_key(k),
             Ev::Input(Event::Mouse(m)) => self.on_mouse(m),
             Ev::Input(Event::Paste(s)) => self.on_paste(&s),
+            Ev::Input(Event::Resize(..)) => self.graphics.invalidate(),
             Ev::Input(_) | Ev::DeviceCode(_) | Ev::LoginDone(_) => {}
             Ev::Tick => self.tick(),
             Ev::Me(u) => {
@@ -1214,16 +1281,27 @@ impl App {
                 self.files_loaded = true;
                 self.file_sel = self.file_sel.min(self.files.len().saturating_sub(1));
             }
-            Ev::ImageLoaded { url, img } => {
-                if let Modal::Image { url: u, img: slot, error, .. } = &mut self.modal {
-                    if *u == url {
-                        match img {
-                            Ok(i) => *slot = Some(i),
-                            Err(e) => *error = Some(e),
+            Ev::ImageLoaded { url, img } => match img {
+                Ok(i) => {
+                    self.img_gen += 1;
+                    let gen = self.img_gen;
+                    let png = self.graphics.kitty.then(|| Arc::new(imgview::encode_png(&i)));
+                    if let Modal::Image { url: u, img: slot, gen: g, png: p, .. } = &mut self.modal {
+                        if *u == url {
+                            *slot = Some(i);
+                            *g = gen;
+                            *p = png;
                         }
                     }
                 }
-            }
+                Err(e) => {
+                    if let Modal::Image { url: u, error, .. } = &mut self.modal {
+                        if *u == url {
+                            *error = Some(e);
+                        }
+                    }
+                }
+            },
             Ev::Done { toast, refresh, calendar } => {
                 if let Some(t) = toast {
                     self.toast(t);
@@ -2036,7 +2114,7 @@ mod tests {
     #[tokio::test]
     async fn demo_end_to_end() {
         let (tx, mut rx) = unbounded_channel();
-        let mut app = App::new(Arc::new(Demo::new()), tx, true);
+        let mut app = App::new(Arc::new(Demo::new()), tx, true, false);
         app.bell = false;
         app.start();
         pump(&mut app, &mut rx, 200).await;

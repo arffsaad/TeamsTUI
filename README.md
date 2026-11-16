@@ -37,7 +37,7 @@ refreshed automatically. `teamstui --logout` forgets it.
 
 | Area | What works |
 | --- | --- |
-| **Chat** | 1:1, group and meeting chats; unread markers; live updates; send, quote-reply, edit, delete; reactions; @mentions with Tab completion; images and GIFs render inside the terminal (`v`, via truecolor half-blocks) or open externally (`o`); attachments and links open in the browser; per-conversation drafts; load older history; new 1:1 and group chats |
+| **Chat** | 1:1, group and meeting chats; unread markers; live updates; send, quote-reply, edit, delete; reactions; @mentions with Tab completion; images and GIFs render inside the terminal (`v`) — pixel-perfect via the Kitty graphics protocol where supported, truecolor half-blocks everywhere else — or open externally (`o`); attachments and links open in the browser; per-conversation drafts; load older history; new 1:1 and group chats |
 | **Teams** | Teams and channels tree; posts with threaded replies; new posts, thread replies, reactions, edit, delete |
 | **Activity** | Feed of new messages and @mentions; Enter jumps to the conversation |
 | **Calendar** | Week grid with overlapping events, all-day row and now-line; meeting details; accept / tentative / decline; schedule a Teams meeting; join opens the meeting link |
@@ -49,7 +49,17 @@ refreshed automatically. `teamstui --logout` forgets it.
 
 Audio, video and screen sharing cannot run in a TUI. Starting a call or joining
 a meeting hands off to the Teams app / teams.microsoft.com through a deep link.
-Images render as `[image]`, and rich cards as a one-line summary.
+Rich cards show as a one-line summary.
+
+### Inline images
+
+Press `v` on a message that has an image or GIF to view it in the terminal.
+On terminals that speak the **Kitty graphics protocol** (kitty, Ghostty, Konsole,
+WezTerm) it renders at full resolution; everywhere else it falls back to
+truecolor half-blocks. Detection is automatic — override with
+`--image-protocol kitty|halfblocks|auto` (or `TEAMSTUI_IMAGE_PROTOCOL`). Inside
+tmux/screen it uses half-blocks, since those don't pass graphics through.
+Animated GIFs show their first frame; `o` opens the original externally.
 
 ## Keys
 

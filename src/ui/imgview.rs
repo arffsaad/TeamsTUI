@@ -4,6 +4,7 @@
 //! truecolor, which every modern terminal supports.
 use super::*;
 use ::image::{DynamicImage, GenericImageView};
+use base64::Engine;
 
 pub fn render(img: &DynamicImage, area: Rect, bg: Color) -> Vec<Line<'static>> {
     if area.width == 0 || area.height == 0 {
@@ -43,4 +44,75 @@ pub fn render(img: &DynamicImage, area: Rect, bg: Color) -> Vec<Line<'static>> {
         lines.push(Line::from(spans));
     }
     lines
+}
+
+/// Encode an image as PNG for transmission, bounding the size (Kitty scales to the cell box).
+pub fn encode_png(img: &DynamicImage) -> Vec<u8> {
+    let max = img.width().max(img.height());
+    let scaled;
+    let src = if max > 1600 {
+        let s = 1600.0 / max as f32;
+        scaled = img.resize((img.width() as f32 * s) as u32, (img.height() as f32 * s) as u32, ::image::imageops::FilterType::Triangle);
+        &scaled
+    } else {
+        img
+    };
+    let mut buf = std::io::Cursor::new(Vec::new());
+    let _ = src.write_to(&mut buf, ::image::ImageFormat::Png);
+    buf.into_inner()
+}
+
+/// Kitty graphics escape to transmit a PNG and place it at (x, y), scaled into cols x rows cells.
+pub fn kitty_place(id: u32, cols: u16, rows: u16, x: u16, y: u16, png: &[u8]) -> Vec<u8> {
+    let b64 = base64::engine::general_purpose::STANDARD.encode(png);
+    let mut out = format!("\x1b[{};{}H", y + 1, x + 1).into_bytes();
+    let data = b64.as_bytes();
+    if data.is_empty() {
+        return out;
+    }
+    let mut chunks = data.chunks(4096).peekable();
+    let mut first = true;
+    while let Some(ch) = chunks.next() {
+        let m = if chunks.peek().is_some() { 1 } else { 0 };
+        if first {
+            // f=100 PNG, a=T transmit+display, C=1 keep cursor, q=2 suppress responses.
+            out.extend(format!("\x1b_Gf=100,a=T,i={id},q=2,c={cols},r={rows},C=1,m={m};").into_bytes());
+            first = false;
+        } else {
+            out.extend(format!("\x1b_Gm={m};").into_bytes());
+        }
+        out.extend_from_slice(ch);
+        out.extend_from_slice(b"\x1b\\");
+    }
+    out
+}
+
+/// Kitty escape to delete the image (and its placement) with the given id.
+pub fn kitty_delete(id: u32) -> Vec<u8> {
+    format!("\x1b_Ga=d,d=i,i={id},q=2\x1b\\").into_bytes()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kitty_sequence_is_well_formed() {
+        let seq = kitty_place(1337, 20, 10, 4, 2, &[1u8; 5000]);
+        let s = String::from_utf8_lossy(&seq);
+        assert!(s.starts_with("\x1b[3;5H"), "cursor position first");
+        assert!(s.contains("f=100,a=T,i=1337,q=2,c=20,r=10,C=1,m=1;"), "header keys");
+        // 5000 bytes -> base64 ~6668 chars -> 2 chunks: first m=1, continuation m=0.
+        assert!(s.contains("\x1b_Gm=0;"), "final continuation chunk");
+        assert_eq!(s.matches("\x1b\\").count(), 2, "two chunk terminators");
+        assert_eq!(kitty_delete(1337), b"\x1b_Ga=d,d=i,i=1337,q=2\x1b\\");
+    }
+
+    #[test]
+    fn single_chunk_small_image() {
+        let seq = kitty_place(1, 2, 1, 0, 0, b"hello");
+        let s = String::from_utf8_lossy(&seq);
+        assert!(s.contains("m=0;"), "single chunk is final");
+        assert_eq!(s.matches("\x1b_G").count(), 1);
+    }
 }

@@ -9,7 +9,7 @@ use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 mod conv;
-mod imgview;
+pub mod imgview;
 mod modals;
 mod panes;
 
@@ -228,6 +228,7 @@ pub fn spinner(app: &App) -> &'static str {
 pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
     app.hits.clear();
+    app.graphics.begin();
     f.buffer_mut().set_style(area, Style::new().bg(MAIN).fg(FG));
     if area.width < 72 || area.height < 16 {
         let msg = Paragraph::new("TeamsTUI needs a terminal of at least 72×16.\nPlease enlarge the window.").alignment(Alignment::Center).style(dim());
